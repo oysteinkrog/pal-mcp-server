@@ -500,6 +500,28 @@ of the evidence, even when it strongly points in one direction.""",
         # Resolve existing continuation_id or create a new one on first step
         continuation_id = request.continuation_id
 
+        # Restore base workflow state from conversation memory on continuation steps.
+        # ConsensusTool has its own execute_workflow loop (to handle per-model consultation)
+        # and does NOT call the base class's execute_workflow, so we must replicate the
+        # base-class state restore here (cf. BaseWorkflowMixin._execute_workflow_locked
+        # lines 692-709).  Without this, interleaved sessions corrupt each other:
+        #   Session A step 1 → sets work_history
+        #   Session B step 1 → resets work_history to []
+        #   Session A step 2 → sees B's empty work_history instead of its own
+        if continuation_id and request.step_number > 1:
+            from utils.conversation_memory import get_thread
+
+            thread = get_thread(continuation_id)
+            if thread and thread.turns:
+                for turn in reversed(thread.turns):
+                    if turn.role == "assistant" and turn.tool_name == self.get_name() and turn.model_metadata:
+                        state = turn.model_metadata
+                        if isinstance(state, dict) and "work_history" in state:
+                            self.work_history = state.get("work_history", [])
+                            self.initial_request = state.get("initial_request")
+                            self._reprocess_consolidated_findings()
+                            break
+
         if request.step_number == 1:
             if not continuation_id:
                 clean_args = {k: v for k, v in arguments.items() if k not in ["_model_context", "_resolved_model_name"]}
@@ -816,7 +838,7 @@ of the evidence, even when it strongly points in one direction.""",
         # Add consensus-specific fields
         if request.step_number == 1:
             response_data["consensus_workflow_status"] = "initial_analysis_complete"
-        elif request.step_number < request.total_steps - 1:
+        elif request.step_number < request.total_steps:
             response_data["consensus_workflow_status"] = "consulting_models"
         else:
             response_data["consensus_workflow_status"] = "ready_for_synthesis"
