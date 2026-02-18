@@ -157,8 +157,11 @@ class ConsensusTool(WorkflowTool):
         """Return the per-session state dict for *continuation_id*.
 
         When no continuation_id is provided (legacy / single-caller path) a
-        transient dict backed by the instance variables is returned so the
-        rest of the code works without special-casing.
+        snapshot dict of the current instance variables is returned so the
+        rest of the code works without special-casing.  Note: in-place
+        mutations on mutable values (lists) propagate to the instance, but
+        scalar key reassignments do *not* — callers must sync those manually
+        via the legacy instance attributes when not using a continuation_id.
         """
         if not continuation_id:
             # Backward-compat: reflect instance vars in a plain dict so callers
@@ -516,9 +519,12 @@ of the evidence, even when it strongly points in one direction.""",
             session["models_to_consult"] = request.models or []
             session["accumulated_responses"] = []
 
-            # Keep legacy instance vars in sync (single-caller / no-continuation_id path).
-            self.models_to_consult = session["models_to_consult"]
-            self.accumulated_responses = session["accumulated_responses"]
+            # Keep legacy instance vars in sync only for the single-caller path.
+            # For multi-agent sessions (continuation_id present) we must NOT overwrite
+            # the shared instance vars with one caller's session-specific data.
+            if not continuation_id:
+                self.models_to_consult = session["models_to_consult"]
+                self.accumulated_responses = session["accumulated_responses"]
 
             # Set total steps: len(models) (each step includes consultation + response)
             request.total_steps = len(session["models_to_consult"])
@@ -585,8 +591,6 @@ of the evidence, even when it strongly points in one direction.""",
                         "4. Specific, actionable next steps for implementation\n"
                         "5. Critical risks or concerns that must be addressed"
                     )
-                    # Workflow complete - release per-session state to free memory.
-                    self._cleanup_session(continuation_id)
                 else:
                     response_data["next_steps"] = (
                         f"Model {model_response['model']} has provided its {model_response.get('stance', 'neutral')} "
@@ -606,6 +610,14 @@ of the evidence, even when it strongly points in one direction.""",
                     continuation_offer = self._build_continuation_offer(continuation_id)
                     if continuation_offer:
                         response_data["continuation_offer"] = continuation_offer
+
+                # Release per-session state *after* all response customization is done.
+                # Must be last: customize_workflow_response and _customize_consensus_metadata
+                # both call _get_session(continuation_id) to build metadata; cleaning up
+                # before those calls would recreate a fresh empty session and lose the
+                # accumulated model list / responses (see PR review comment).
+                if request.step_number == request.total_steps:
+                    self._cleanup_session(continuation_id)
 
                 return [TextContent(type="text", text=json.dumps(response_data, indent=2, ensure_ascii=False))]
 
@@ -897,9 +909,12 @@ of the evidence, even when it strongly points in one direction.""",
         # Write into the per-session dict so concurrent callers stay isolated.
         session = self._get_session(continuation_id)
         session["original_proposal"] = step_description
-        # Also keep legacy instance vars for any code that reads them directly.
-        self.original_proposal = step_description
-        self.initial_prompt = step_description  # Keep for backward compatibility
+        # Only sync to legacy instance vars on the single-caller (no continuation_id) path.
+        # For multi-agent sessions we must NOT overwrite the shared singleton state with
+        # one caller's proposal, as that would corrupt concurrent callers.
+        if not continuation_id:
+            self.original_proposal = step_description
+            self.initial_prompt = step_description  # Keep for backward compatibility
 
     # Required abstract methods from BaseTool
     def get_request_model(self):
