@@ -12,6 +12,7 @@ and inherit all the conversation, file processing, and model handling
 capabilities from BaseTool.
 """
 
+import asyncio
 from abc import abstractmethod
 from typing import Any, Optional
 
@@ -31,6 +32,14 @@ class SimpleTool(BaseTool):
     - Inherited conversation handling and file processing
     - Standardized model integration
     - Consistent error handling and response formatting
+
+    Concurrency note:
+        Tool instances are singletons (one per tool type in the TOOLS dict).
+        The ``_concurrency_lock`` serialises concurrent calls to the same tool
+        so that per-call state stored on ``self`` (e.g. ``_current_arguments``,
+        ``_model_context``) cannot be clobbered by a second SSE session.
+        If this becomes a bottleneck, migrate per-call state to a local context
+        object passed through the call chain.
 
     To create a simple tool:
     1. Inherit from SimpleTool
@@ -60,6 +69,13 @@ class SimpleTool(BaseTool):
     # Common field definitions that simple tools can reuse
     FILES_FIELD = SchemaBuilder.SIMPLE_FIELD_SCHEMAS["absolute_file_paths"]
     IMAGES_FIELD = SchemaBuilder.COMMON_FIELD_SCHEMAS["images"]
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Serialise concurrent calls so per-call instance state
+        # (_current_arguments, _model_context, etc.) cannot be clobbered
+        # by a second SSE session hitting the same singleton.
+        self._concurrency_lock: asyncio.Lock = asyncio.Lock()
 
     @abstractmethod
     def get_tool_fields(self) -> dict[str, dict[str, Any]]:
@@ -271,7 +287,14 @@ class SimpleTool(BaseTool):
         Execute the simple tool using the comprehensive flow from old base.py.
 
         This method replicates the proven execution pattern while using SimpleTool hooks.
+        Concurrent calls are serialised by ``_concurrency_lock`` to protect per-call
+        instance state from clobbering by other SSE sessions.
         """
+        async with self._concurrency_lock:
+            return await self._execute_locked(arguments)
+
+    async def _execute_locked(self, arguments: dict[str, Any]) -> list:
+        """Inner execute body, called while holding ``_concurrency_lock``."""
         import logging
 
         from mcp.types import TextContent
