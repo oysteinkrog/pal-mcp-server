@@ -94,9 +94,9 @@ class TestAutoModeComprehensive:
                     "OPENROUTER_API_KEY": None,
                 },
                 {
-                    "EXTENDED_REASONING": "gpt-5.4-pro",  # GPT-5.4 Pro prioritized for max reasoning
-                    "FAST_RESPONSE": "gpt-5.4",  # Prefer gpt-5.4 for speed (most token-efficient)
-                    "BALANCED": "gpt-5.4",  # Prefer gpt-5.4 for balanced
+                    "EXTENDED_REASONING": "gpt-5.5-pro",  # GPT-5.5 Pro prioritized for max reasoning
+                    "FAST_RESPONSE": "gpt-5.5",  # Prefer gpt-5.5 for speed (most token-efficient)
+                    "BALANCED": "gpt-5.5",  # Prefer gpt-5.5 for balanced
                 },
             ),
             # Only X.AI API available

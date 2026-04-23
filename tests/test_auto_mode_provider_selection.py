@@ -98,9 +98,9 @@ class TestAutoModeProviderSelection:
             balanced = ModelProviderRegistry.get_preferred_fallback_model(ToolModelCategory.BALANCED)
 
             # Should select appropriate OpenAI models based on new preference order
-            assert extended_reasoning == "gpt-5.4-pro"  # GPT-5.4 Pro prioritized for extended reasoning
-            assert fast_response == "gpt-5.4"  # gpt-5.4 comes first in fast response preference
-            assert balanced == "gpt-5.4"  # gpt-5.4 for balanced
+            assert extended_reasoning == "gpt-5.5-pro"  # GPT-5.5 Pro prioritized for extended reasoning
+            assert fast_response == "gpt-5.5"  # gpt-5.5 comes first in fast response preference
+            assert balanced == "gpt-5.5"  # gpt-5.5 for balanced
 
         finally:
             # Restore original environment

@@ -389,6 +389,55 @@
       "default_reasoning_effort": "high",
       "allow_code_generation": true,
       "temperature_constraint": "fixed"
+    },
+    {
+      "model_name": "gpt-5.5",
+      "friendly_name": "OpenAI (GPT-5.5)",
+      "aliases": [
+        "gpt5.5",
+        "gpt-5.5",
+        "5.5"
+      ],
+      "intelligence_score": 20,
+      "description": "GPT-5.5 (1M context, 128K output) - Most capable model for professional work with reasoning and computer use.",
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_system_prompts": true,
+      "supports_streaming": true,
+      "supports_function_calling": true,
+      "supports_json_mode": true,
+      "supports_images": true,
+      "supports_temperature": true,
+      "max_image_size_mb": 20.0,
+      "default_reasoning_effort": "medium",
+      "allow_code_generation": true,
+      "temperature_constraint": "fixed"
+    },
+    {
+      "model_name": "gpt-5.5-pro",
+      "friendly_name": "OpenAI (GPT-5.5 Pro)",
+      "aliases": [
+        "gpt5.5-pro",
+        "gpt5.5pro",
+        "5.5-pro"
+      ],
+      "intelligence_score": 21,
+      "description": "GPT-5.5 Pro (1M context, 128K output) - Smarter, more precise responses with advanced reasoning.",
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_system_prompts": true,
+      "supports_streaming": true,
+      "supports_function_calling": true,
+      "supports_json_mode": false,
+      "supports_images": true,
+      "supports_temperature": true,
+      "max_image_size_mb": 20.0,
+      "use_openai_response_api": true,
+      "default_reasoning_effort": "high",
+      "allow_code_generation": true,
+      "temperature_constraint": "fixed"
     }
   ]
 }
