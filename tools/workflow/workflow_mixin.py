@@ -75,11 +75,9 @@ class BaseWorkflowMixin(ABC):
         # Per-instance lock: serialises concurrent callers on the same tool singleton so
         # that shared mutable state (work_history, consolidated_findings, etc.) is never
         # corrupted by interleaved async execution.  Different tool instances (e.g. debug
-        # vs codereview) have independent locks so they run fully in parallel.
-        # NOTE: with truly async (non-blocking) AI providers this lock prevents races
-        # at the cost of serialising calls of the *same* tool type.  If that becomes a
-        # bottleneck, migrate to per-session state keyed by continuation_id.
-        self._concurrency_lock: asyncio.Lock = asyncio.Lock()
+        # vs codereview) have independent semaphores so they run fully in parallel.
+        # Semaphore allows up to 50 concurrent calls per tool type.
+        self._concurrency_sem: asyncio.Semaphore = asyncio.Semaphore(50)
 
     # ================================================================================
     # Abstract Methods - Required Implementation by BaseTool or Subclasses
@@ -621,11 +619,8 @@ class BaseWorkflowMixin(ABC):
         8. Conversation memory integration
         """
 
-        # Serialise concurrent calls on this tool instance.  The tool singleton holds
-        # mutable state (work_history, consolidated_findings, …) that must not be
-        # corrupted by interleaved async execution from multiple callers (e.g. Claude
-        # Code Agent Teams running parallel sub-agents that all hit the same MCP server).
-        async with self._concurrency_lock:
+        # Cap concurrent calls on this tool instance via semaphore.
+        async with self._concurrency_sem:
             return await self._execute_workflow_locked(arguments)
 
     async def _execute_workflow_locked(self, arguments: dict[str, Any]) -> list[TextContent]:
@@ -1512,7 +1507,9 @@ class BaseWorkflowMixin(ABC):
                 logger.warning(warning)
 
             # Generate AI response - use request parameters if available
-            model_response = provider.generate_content(
+            # Run sync provider call in a thread to avoid blocking the event loop
+            model_response = await asyncio.to_thread(
+                provider.generate_content,
                 prompt=prompt,
                 model_name=model_name,
                 system_prompt=system_prompt,

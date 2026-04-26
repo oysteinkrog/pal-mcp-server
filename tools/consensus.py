@@ -15,6 +15,7 @@ Key features:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -482,10 +483,10 @@ of the evidence, even when it strongly points in one direction.""",
 
     async def execute_workflow(self, arguments: dict[str, Any]) -> list:
         """Override execute_workflow to handle model consultations between steps."""
-        # Acquire the per-instance concurrency lock (inherited from BaseWorkflowMixin)
-        # to protect shared state (work_history, consolidated_findings) while
-        # consensus-specific state is isolated per-session via self._sessions.
-        async with self._concurrency_lock:
+        # Acquire the per-instance concurrency semaphore (inherited from BaseWorkflowMixin)
+        # to cap concurrent calls while consensus-specific state is isolated
+        # per-session via self._sessions.
+        async with self._concurrency_sem:
             return await self._execute_consensus_workflow_locked(arguments)
 
     async def _execute_consensus_workflow_locked(self, arguments: dict[str, Any]) -> list:
@@ -644,7 +645,7 @@ of the evidence, even when it strongly points in one direction.""",
                 return [TextContent(type="text", text=json.dumps(response_data, indent=2, ensure_ascii=False))]
 
         # Otherwise, use standard workflow execution.
-        # We already hold _concurrency_lock so call the inner method directly
+        # We already hold _concurrency_sem so call the inner method directly
         # to avoid a deadlock from re-acquiring the same asyncio.Lock.
         return await super()._execute_workflow_locked(arguments)
 
@@ -721,7 +722,9 @@ of the evidence, even when it strongly points in one direction.""",
                 logger.warning(warning)
 
             # Call the model with validated temperature
-            response = provider.generate_content(
+            # Run sync provider call in a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(
+                provider.generate_content,
                 prompt=prompt,
                 model_name=model_name,
                 system_prompt=system_prompt,

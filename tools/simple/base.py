@@ -35,10 +35,10 @@ class SimpleTool(BaseTool):
 
     Concurrency note:
         Tool instances are singletons (one per tool type in the TOOLS dict).
-        The ``_concurrency_lock`` serialises concurrent calls to the same tool
-        so that per-call state stored on ``self`` (e.g. ``_current_arguments``,
-        ``_model_context``) cannot be clobbered by a second SSE session.
-        If this becomes a bottleneck, migrate per-call state to a local context
+        Per-call state (``_current_arguments``, ``_model_context``, etc.) is set
+        and consumed in a single sync block before the first ``await``, so
+        concurrent calls cannot interleave those writes.  A semaphore caps
+        the maximum number of in-flight LLM calls to avoid resource exhaustion
         object passed through the call chain.
 
     To create a simple tool:
@@ -72,10 +72,10 @@ class SimpleTool(BaseTool):
 
     def __init__(self) -> None:
         super().__init__()
-        # Serialise concurrent calls so per-call instance state
-        # (_current_arguments, _model_context, etc.) cannot be clobbered
-        # by a second SSE session hitting the same singleton.
-        self._concurrency_lock: asyncio.Lock = asyncio.Lock()
+        # Allow up to 50 concurrent LLM calls per tool type.
+        # Per-call instance state is set and consumed in a single sync block
+        # before the first await, so no interleaving risk.
+        self._concurrency_sem: asyncio.Semaphore = asyncio.Semaphore(50)
 
     @abstractmethod
     def get_tool_fields(self) -> dict[str, dict[str, Any]]:
@@ -287,14 +287,13 @@ class SimpleTool(BaseTool):
         Execute the simple tool using the comprehensive flow from old base.py.
 
         This method replicates the proven execution pattern while using SimpleTool hooks.
-        Concurrent calls are serialised by ``_concurrency_lock`` to protect per-call
-        instance state from clobbering by other SSE sessions.
+        A semaphore caps concurrent in-flight LLM calls to 50 per tool.
         """
-        async with self._concurrency_lock:
+        async with self._concurrency_sem:
             return await self._execute_locked(arguments)
 
     async def _execute_locked(self, arguments: dict[str, Any]) -> list:
-        """Inner execute body, called while holding ``_concurrency_lock``."""
+        """Inner execute body, called while holding ``_concurrency_sem``."""
         import logging
 
         from mcp.types import TextContent
@@ -333,8 +332,11 @@ class SimpleTool(BaseTool):
 
                 model_name = DEFAULT_MODEL
 
-            # Store the current model name for later use
+            # Store the current model name for later use.
+            # IMPORTANT: Capture into locals immediately — self._* is shared
+            # across concurrent calls and can be clobbered after any await.
             self._current_model_name = model_name
+            current_model_name = model_name  # local copy
 
             # Handle model context from arguments (for in-process testing)
             if "_model_context" in arguments:
@@ -346,6 +348,8 @@ class SimpleTool(BaseTool):
 
                 self._model_context = ModelContext(model_name)
                 logger.debug(f"{self.get_name()}: Created model context for {model_name}")
+
+            model_context = self._model_context  # local copy
 
             # Get images if present
             images = self.get_request_images(request)
@@ -383,7 +387,7 @@ class SimpleTool(BaseTool):
 
                         # Build conversation history with updated thread context
                         conversation_history, conversation_tokens = build_conversation_history(
-                            thread_context, self._model_context
+                            thread_context, model_context
                         )
 
                         # Get the base prompt from the tool
@@ -412,7 +416,7 @@ class SimpleTool(BaseTool):
                 )  # Validate images if any were provided
             if images:
                 image_validation_error = self._validate_image_limits(
-                    images, model_context=self._model_context, continuation_id=continuation_id
+                    images, model_context=model_context, continuation_id=continuation_id
                 )
                 if image_validation_error:
                     error_output = ToolOutput(
@@ -426,7 +430,7 @@ class SimpleTool(BaseTool):
                     raise ToolExecutionError(payload)
 
             # Get and validate temperature against model constraints
-            temperature, temp_warnings = self.get_validated_temperature(request, self._model_context)
+            temperature, temp_warnings = self.get_validated_temperature(request, model_context)
 
             # Log any temperature corrections
             for warning in temp_warnings:
@@ -436,9 +440,9 @@ class SimpleTool(BaseTool):
             if thinking_mode is None:
                 thinking_mode = self.get_default_thinking_mode()
 
-            # Get the provider from model context (clean OOP - no re-fetching)
-            provider = self._model_context.provider
-            capabilities = self._model_context.capabilities
+            # Use locals captured before any await — safe from concurrent clobbering
+            provider = model_context.provider
+            capabilities = model_context.capabilities
 
             # Get system prompt for this tool
             base_system_prompt = self.get_system_prompt()
@@ -450,9 +454,7 @@ class SimpleTool(BaseTool):
 
             # Generate AI response using the provider
             logger.info(f"Sending request to {provider.get_provider_type().value} API for {self.get_name()}")
-            logger.info(
-                f"Using model: {self._model_context.model_name} via {provider.get_provider_type().value} provider"
-            )
+            logger.info(f"Using model: {model_context.model_name} via {provider.get_provider_type().value} provider")
 
             # Estimate tokens for logging
             from utils.token_utils import estimate_tokens
@@ -464,9 +466,11 @@ class SimpleTool(BaseTool):
             supports_thinking = capabilities.supports_extended_thinking
 
             # Generate content with provider abstraction
-            model_response = provider.generate_content(
+            # Run sync provider call in a thread to avoid blocking the event loop
+            model_response = await asyncio.to_thread(
+                provider.generate_content,
                 prompt=prompt,
-                model_name=self._current_model_name,
+                model_name=current_model_name,
                 system_prompt=system_prompt,
                 temperature=temperature,
                 thinking_mode=thinking_mode if supports_thinking else None,
@@ -482,7 +486,7 @@ class SimpleTool(BaseTool):
                 # Create model info for conversation tracking
                 model_info = {
                     "provider": provider,
-                    "model_name": self._current_model_name,
+                    "model_name": current_model_name,
                     "model_response": model_response,
                 }
 
@@ -521,9 +525,10 @@ class SimpleTool(BaseTool):
                         retry_prompt = f"{original_prompt}\n\nIMPORTANT: Please provide a substantive response. If you cannot respond to the above request, please explain why and suggest alternatives."
 
                         try:
-                            retry_response = provider.generate_content(
+                            retry_response = await asyncio.to_thread(
+                                provider.generate_content,
                                 prompt=retry_prompt,
-                                model_name=self._current_model_name,
+                                model_name=current_model_name,
                                 system_prompt=system_prompt,
                                 temperature=temperature,
                                 thinking_mode=thinking_mode if supports_thinking else None,
@@ -538,7 +543,7 @@ class SimpleTool(BaseTool):
                                 # Update model info for the successful retry
                                 model_info = {
                                     "provider": provider,
-                                    "model_name": self._current_model_name,
+                                    "model_name": current_model_name,
                                     "model_response": retry_response,
                                 }
 

@@ -1538,11 +1538,28 @@ async def _run_sse(host: str, port: int, init_options):
     finally:
         sock.close()
 
+    # Suppress SSE ping spam (thousands/sec at DEBUG level clogs the event loop)
+    logging.getLogger("sse_starlette.sse").setLevel(logging.WARNING)
+
     sse = SseServerTransport("/messages/")
 
+    def _purge_dead_sessions():
+        """Remove closed writers from the SSE transport's session dict."""
+        dead = [sid for sid, w in sse._read_stream_writers.items() if w._closed]
+        for sid in dead:
+            del sse._read_stream_writers[sid]
+            logger.info(f"Purged dead SSE session {sid}")
+
     async def handle_sse(request):
+        # Clean up any dead sessions before starting a new one
+        _purge_dead_sessions()
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-            await server.run(streams[0], streams[1], init_options)
+            try:
+                await server.run(streams[0], streams[1], init_options)
+            except Exception:
+                logger.exception("SSE session error")
+            finally:
+                _purge_dead_sessions()
         return Response()
 
     app = Starlette(
