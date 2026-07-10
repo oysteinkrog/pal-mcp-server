@@ -581,6 +581,74 @@
       "intelligence_score": 21
     },
     {
+      "model_name": "openai/gpt-5.6-sol",
+      "aliases": [
+        "gpt-5.6",
+        "gpt5.6",
+        "5.6",
+        "sol",
+        "gpt5.6-sol",
+        "5.6-sol"
+      ],
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_json_mode": true,
+      "supports_function_calling": true,
+      "supports_images": true,
+      "max_image_size_mb": 20.0,
+      "supports_temperature": true,
+      "temperature_constraint": "fixed",
+      "use_openai_response_api": true,
+      "default_reasoning_effort": "high",
+      "allow_code_generation": true,
+      "description": "GPT-5.6 Sol (1M context, 128K output) - Frontier model for complex professional work with reasoning up to max effort",
+      "intelligence_score": 22
+    },
+    {
+      "model_name": "openai/gpt-5.6-terra",
+      "aliases": [
+        "gpt5.6-terra",
+        "terra",
+        "5.6-terra"
+      ],
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_json_mode": true,
+      "supports_function_calling": true,
+      "supports_images": true,
+      "max_image_size_mb": 20.0,
+      "supports_temperature": true,
+      "temperature_constraint": "fixed",
+      "use_openai_response_api": true,
+      "default_reasoning_effort": "medium",
+      "allow_code_generation": true,
+      "description": "GPT-5.6 Terra (1M context, 128K output) - Balances intelligence and cost, matches GPT-5.5 performance at half the price",
+      "intelligence_score": 20
+    },
+    {
+      "model_name": "openai/gpt-5.6-luna",
+      "aliases": [
+        "gpt5.6-luna",
+        "luna",
+        "5.6-luna"
+      ],
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_json_mode": true,
+      "supports_function_calling": true,
+      "supports_images": true,
+      "max_image_size_mb": 20.0,
+      "supports_temperature": true,
+      "temperature_constraint": "fixed",
+      "use_openai_response_api": true,
+      "default_reasoning_effort": "low",
+      "description": "GPT-5.6 Luna (1M context, 128K output) - Strong capability at OpenAI's lowest price point for high-volume workloads",
+      "intelligence_score": 17
+    },
+    {
       "model_name": "x-ai/grok-4",
       "aliases": [
         "grok-4",

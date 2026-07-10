@@ -98,8 +98,8 @@ class TestModelSelection:
             ModelProviderRegistry.register_provider(ProviderType.OPENAI, OpenAIModelProvider)
 
             model = ModelProviderRegistry.get_preferred_fallback_model(ToolModelCategory.EXTENDED_REASONING)
-            # OpenAI prefers GPT-5.5 Pro for extended reasoning
-            assert model == "gpt-5.5-pro"
+            # OpenAI prefers GPT-5.6 Sol for extended reasoning
+            assert model == "gpt-5.6-sol"
 
     def test_extended_reasoning_with_gemini_only(self):
         """Test EXTENDED_REASONING prefers pro when only Gemini is available."""
@@ -133,8 +133,8 @@ class TestModelSelection:
             ModelProviderRegistry.register_provider(ProviderType.OPENAI, OpenAIModelProvider)
 
             model = ModelProviderRegistry.get_preferred_fallback_model(ToolModelCategory.FAST_RESPONSE)
-            # OpenAI now prefers gpt-5.5 for fast response (most token-efficient)
-            assert model == "gpt-5.5"
+            # OpenAI now prefers gpt-5.6-luna for fast response (lowest cost)
+            assert model == "gpt-5.6-luna"
 
     def test_fast_response_with_gemini_only(self):
         """Test FAST_RESPONSE prefers flash when only Gemini is available."""
@@ -167,8 +167,8 @@ class TestModelSelection:
             ModelProviderRegistry.register_provider(ProviderType.OPENAI, OpenAIModelProvider)
 
             model = ModelProviderRegistry.get_preferred_fallback_model(ToolModelCategory.BALANCED)
-            # OpenAI prefers gpt-5.5 for balanced
-            assert model == "gpt-5.5"
+            # OpenAI prefers gpt-5.6-terra for balanced
+            assert model == "gpt-5.6-terra"
 
     def test_no_category_uses_balanced_logic(self):
         """Test that no category specified uses balanced logic."""
@@ -195,7 +195,7 @@ class TestFlexibleModelSelection:
                 "env": {"OPENAI_API_KEY": "test-key"},
                 "provider_type": ProviderType.OPENAI,
                 "category": ToolModelCategory.EXTENDED_REASONING,
-                "expected": "gpt-5.5-pro",  # GPT-5.5 Pro prioritized for extended reasoning
+                "expected": "gpt-5.6-sol",  # GPT-5.6 Sol prioritized for extended reasoning
             },
             # Case 2: Gemini provider for fast response
             {
@@ -209,7 +209,7 @@ class TestFlexibleModelSelection:
                 "env": {"OPENAI_API_KEY": "test-key"},
                 "provider_type": ProviderType.OPENAI,
                 "category": ToolModelCategory.FAST_RESPONSE,
-                "expected": "gpt-5.5",  # Based on new preference order
+                "expected": "gpt-5.6-luna",  # Based on new preference order
             },
         ]
 

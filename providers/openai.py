@@ -115,9 +115,11 @@ class OpenAIModelProvider(RegistryBackedProviderMixin, OpenAICompatibleProvider)
 
         if category == ToolModelCategory.EXTENDED_REASONING:
             # Prefer models with extended thinking support
-            # GPT-5.5 Pro first for max reasoning
+            # GPT-5.6 Sol first for max reasoning
             preferred = find_first(
                 [
+                    "gpt-5.6-sol",
+                    "gpt-5.6-terra",
                     "gpt-5.5-pro",
                     "gpt-5.5",
                     "gpt-5.4-pro",
@@ -136,9 +138,11 @@ class OpenAIModelProvider(RegistryBackedProviderMixin, OpenAICompatibleProvider)
 
         elif category == ToolModelCategory.FAST_RESPONSE:
             # Prefer fast, cost-efficient models
-            # GPT-5.5 for speed (most token-efficient), then older fast models
+            # GPT-5.6 Luna for speed at lowest cost, then older fast models
             preferred = find_first(
                 [
+                    "gpt-5.6-luna",
+                    "gpt-5.6-terra",
                     "gpt-5.5",
                     "gpt-5.4",
                     "gpt-5.2",
@@ -154,9 +158,11 @@ class OpenAIModelProvider(RegistryBackedProviderMixin, OpenAICompatibleProvider)
 
         else:  # BALANCED or default
             # Prefer balanced performance/cost models
-            # GPT-5.5 family for latest capabilities
+            # GPT-5.6 Terra balances intelligence and cost
             preferred = find_first(
                 [
+                    "gpt-5.6-terra",
+                    "gpt-5.6-sol",
                     "gpt-5.5",
                     "gpt-5.4",
                     "gpt-5.3-codex",
