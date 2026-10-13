@@ -2,7 +2,10 @@
 
 import base64
 import logging
+import time
 from typing import TYPE_CHECKING, ClassVar, Optional
+
+import httpx
 
 if TYPE_CHECKING:
     from tools.models import ToolModelCategory
@@ -41,6 +44,23 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
         "high": 0.67,  # 67% of max - complex analysis
         "max": 1.0,  # 100% of max - full thinking budget
     }
+
+    # Gemini 4 ignores thinking_budget and takes a thinking level instead. A non-streaming call
+    # gets 32K output tokens including thinking, and on large inputs HIGH spends all of them on
+    # thinking and returns no text, so high and max map to MEDIUM.
+    THINKING_LEVELS = {
+        "minimal": "LOW",
+        "low": "LOW",
+        "medium": "MEDIUM",
+        "high": "MEDIUM",
+        "max": "MEDIUM",
+    }
+
+    # Gemini 4 replies longer than one 32K call are fetched with continuation tokens. These caps
+    # bound the total reply and the number of requests one call can make.
+    GEMINI4_MAX_OUTPUT_TOKENS = 131072
+    GEMINI4_MAX_CONTINUATIONS = 8
+    GEMINI4_HOP_RETRY_DELAYS = (5, 15, 30)
 
     def __init__(self, api_key: str, **kwargs):
         """Initialize Gemini provider with API key and optional base URL."""
@@ -189,7 +209,11 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
         if capabilities.supports_extended_thinking and effective_thinking_mode in self.THINKING_BUDGETS:
             # Get model's max thinking tokens and calculate actual budget
             model_config = capability_map.get(resolved_model_name)
-            if model_config and model_config.max_thinking_tokens > 0:
+            if resolved_model_name.startswith("gemini-4"):
+                generation_config.thinking_config = types.ThinkingConfig(
+                    thinking_level=self.THINKING_LEVELS[effective_thinking_mode]
+                )
+            elif model_config and model_config.max_thinking_tokens > 0:
                 max_thinking_tokens = model_config.max_thinking_tokens
                 actual_thinking_budget = int(max_thinking_tokens * self.THINKING_BUDGETS[effective_thinking_mode])
                 generation_config.thinking_config = types.ThinkingConfig(thinking_budget=actual_thinking_budget)
@@ -201,6 +225,10 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
 
         def _attempt() -> ModelResponse:
             attempt_counter["value"] += 1
+            if resolved_model_name.startswith("gemini-4"):
+                return self._generate_with_continuation(
+                    resolved_model_name, parts, generation_config, effective_thinking_mode
+                )
             response = self.client.models.generate_content(
                 model=resolved_model_name,
                 contents=contents,
@@ -302,6 +330,116 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
                 f"{'s' if attempts > 1 else ''}: {exc}"
             )
             raise RuntimeError(error_msg) from exc
+
+    def _generate_with_continuation(
+        self,
+        model_name: str,
+        parts: list[dict],
+        generation_config: types.GenerateContentConfig,
+        thinking_mode: str,
+    ) -> ModelResponse:
+        """Call a Gemini 4 model over REST and follow continuation tokens.
+
+        One non-streaming call returns at most 32K tokens, thinking included. When a reply needs
+        more, the API ends it with finish reason CONTINUATION and a continuationToken, and the same
+        request is sent again with that token. google-genai 1.x drops the token, so this path does
+        not use the SDK.
+        """
+        rest_parts = []
+        for part in parts:
+            if "inline_data" in part:
+                inline = part["inline_data"]
+                rest_parts.append({"inlineData": {"mimeType": inline["mime_type"], "data": inline["data"]}})
+            else:
+                rest_parts.append({"text": part["text"]})
+
+        config: dict = {
+            "candidateCount": 1,
+            "maxOutputTokens": max(generation_config.max_output_tokens or 0, self.GEMINI4_MAX_OUTPUT_TOKENS),
+        }
+        if generation_config.temperature is not None:
+            config["temperature"] = generation_config.temperature
+        if generation_config.thinking_config and generation_config.thinking_config.thinking_level:
+            config["thinkingConfig"] = {"thinkingLevel": generation_config.thinking_config.thinking_level.value}
+        request = {"contents": [{"role": "user", "parts": rest_parts}], "generationConfig": config}
+
+        base_url = (self._base_url or "https://generativelanguage.googleapis.com").rstrip("/")
+        url = f"{base_url}/v1beta/models/{model_name}:generateContent"
+        timeout = self._timeout_override if self._timeout_override is not None else 1500.0
+
+        texts: list[str] = []
+        input_tokens = output_tokens = 0
+        finish_reason = "UNKNOWN"
+        token = None
+        hops = 0
+        with httpx.Client(timeout=timeout) as http:
+            for hop in range(1, self.GEMINI4_MAX_CONTINUATIONS + 1):
+                hops = hop
+                body = dict(request, continuationToken=token) if token else request
+                data = self._post_hop(http, url, body, is_continuation=token is not None)
+
+                usage = data.get("usageMetadata", {})
+                input_tokens = input_tokens or usage.get("promptTokenCount", 0)
+                output_tokens += usage.get("candidatesTokenCount", 0) + usage.get("thoughtsTokenCount", 0)
+
+                candidates = data.get("candidates") or []
+                if not candidates:
+                    block = (data.get("promptFeedback") or {}).get("blockReason", "unknown")
+                    raise ValueError(f"{model_name} returned no candidates (prompt blocked: {block})")
+                candidate = candidates[0]
+                finish_reason = candidate.get("finishReason", "STOP")
+                content_parts = (candidate.get("content") or {}).get("parts", [])
+                texts.append("".join(p.get("text", "") for p in content_parts if not p.get("thought")))
+
+                token = candidate.get("continuationToken") or data.get("continuationToken")
+                if finish_reason != "CONTINUATION" or not token:
+                    break
+
+        text = "".join(texts)
+        if not text:
+            raise ValueError(
+                f"{model_name} returned no text after {hops} request(s) (finish reason {finish_reason}). "
+                "Use a lower thinking_mode or a smaller input."
+            )
+        if finish_reason == "CONTINUATION":
+            logger.warning("%s still wanted to continue after %d requests; reply is cut short", model_name, hops)
+
+        return ModelResponse(
+            content=text,
+            usage={
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+            },
+            model_name=model_name,
+            friendly_name="Gemini",
+            provider=ProviderType.GOOGLE,
+            metadata={
+                "thinking_mode": thinking_mode,
+                "finish_reason": finish_reason,
+                "is_blocked_by_safety": finish_reason in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"),
+                "safety_feedback": None,
+                "continuation_requests": hops,
+            },
+        )
+
+    def _post_hop(self, http: httpx.Client, url: str, body: dict, is_continuation: bool) -> dict:
+        """Send one request. After the first hop, retry busy errors here so the token is kept.
+
+        A failure on the first hop is left to the outer retry loop, which starts over anyway.
+        """
+        delays = self.GEMINI4_HOP_RETRY_DELAYS if is_continuation else ()
+        for attempt in range(len(delays) + 1):
+            response = http.post(url, json=body, headers={"x-goog-api-key": self.api_key})
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code not in (429, 500, 502, 503, 504) or attempt == len(delays):
+                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:500]}")
+            logger.warning(
+                "Gemini continuation request got HTTP %s; trying again in %ss", response.status_code, delays[attempt]
+            )
+            time.sleep(delays[attempt])
+        raise AssertionError("unreachable")
 
     def get_provider_type(self) -> ProviderType:
         """Get the provider type."""
