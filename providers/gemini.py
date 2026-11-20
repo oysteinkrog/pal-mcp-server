@@ -90,6 +90,20 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
             if self._timeout_override is not None:
                 http_options_kwargs["timeout"] = self._timeout_override
 
+            # GEMINI_VERTEX_PROJECT sends calls through Vertex AI, billed to the project's
+            # Cloud billing account, using Application Default Credentials. The API key is
+            # then only used to register the provider.
+            vertex_project = get_env("GEMINI_VERTEX_PROJECT")
+            client_kwargs: dict[str, object] = {}
+            if vertex_project:
+                client_kwargs.update(
+                    vertexai=True,
+                    project=vertex_project,
+                    location=get_env("GEMINI_VERTEX_LOCATION") or "global",
+                )
+            else:
+                client_kwargs["api_key"] = self.api_key
+
             if http_options_kwargs:
                 http_options = types.HttpOptions(**http_options_kwargs)
                 logger.debug(
@@ -97,9 +111,10 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
                     http_options_kwargs.get("base_url"),
                     http_options_kwargs.get("timeout"),
                 )
-                self._client = genai.Client(api_key=self.api_key, http_options=http_options)
-            else:
-                self._client = genai.Client(api_key=self.api_key)
+                client_kwargs["http_options"] = http_options
+            if vertex_project:
+                logger.info("Gemini client uses Vertex AI project %s", vertex_project)
+            self._client = genai.Client(**client_kwargs)
         return self._client
 
     def _resolve_http_timeout(self) -> Optional[float]:
@@ -363,8 +378,7 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
             config["thinkingConfig"] = {"thinkingLevel": generation_config.thinking_config.thinking_level.value}
         request = {"contents": [{"role": "user", "parts": rest_parts}], "generationConfig": config}
 
-        base_url = (self._base_url or "https://generativelanguage.googleapis.com").rstrip("/")
-        url = f"{base_url}/v1beta/models/{model_name}:generateContent"
+        url = self._rest_generate_url(model_name)
         timeout = self._timeout_override if self._timeout_override is not None else 1500.0
 
         texts: list[str] = []
@@ -430,7 +444,7 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
         """
         delays = self.GEMINI4_HOP_RETRY_DELAYS if is_continuation else ()
         for attempt in range(len(delays) + 1):
-            response = http.post(url, json=body, headers={"x-goog-api-key": self.api_key})
+            response = http.post(url, json=body, headers=self._rest_auth_headers())
             if response.status_code == 200:
                 return response.json()
             if response.status_code not in (429, 500, 502, 503, 504) or attempt == len(delays):
@@ -440,6 +454,32 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
             )
             time.sleep(delays[attempt])
         raise AssertionError("unreachable")
+
+    def _rest_generate_url(self, model_name: str) -> str:
+        """generateContent URL for the REST path: Vertex AI when GEMINI_VERTEX_PROJECT is set."""
+        vertex_project = get_env("GEMINI_VERTEX_PROJECT")
+        if vertex_project:
+            location = get_env("GEMINI_VERTEX_LOCATION") or "global"
+            host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+            return (
+                f"https://{host}/v1beta1/projects/{vertex_project}/locations/{location}"
+                f"/publishers/google/models/{model_name}:generateContent"
+            )
+        base_url = (self._base_url or "https://generativelanguage.googleapis.com").rstrip("/")
+        return f"{base_url}/v1beta/models/{model_name}:generateContent"
+
+    def _rest_auth_headers(self) -> dict[str, str]:
+        """Vertex AI uses an Application Default Credentials token; AI Studio uses the API key."""
+        if not get_env("GEMINI_VERTEX_PROJECT"):
+            return {"x-goog-api-key": self.api_key}
+        import google.auth
+        import google.auth.transport.requests
+
+        if getattr(self, "_adc_credentials", None) is None:
+            self._adc_credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if not self._adc_credentials.valid:
+            self._adc_credentials.refresh(google.auth.transport.requests.Request())
+        return {"Authorization": f"Bearer {self._adc_credentials.token}"}
 
     def get_provider_type(self) -> ProviderType:
         """Get the provider type."""
