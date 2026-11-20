@@ -22,6 +22,8 @@ class TestSupportedModelsAliases:
         assert "flash" in provider.MODEL_CAPABILITIES["gemini-3.8-flash"].aliases
         assert "flash2.5" in provider.MODEL_CAPABILITIES["gemini-2.5-flash"].aliases
         assert "pro" in provider.MODEL_CAPABILITIES["gemini-3.1-pro-preview"].aliases
+        assert "neon" in provider.MODEL_CAPABILITIES["gemini-4-neon"].aliases
+        assert "carbon" in provider.MODEL_CAPABILITIES["gemini-4-carbon"].aliases
         assert "argon" in provider.MODEL_CAPABILITIES["gemini-4-argon"].aliases
         assert "gemini4" in provider.MODEL_CAPABILITIES["gemini-4-argon"].aliases
         assert "flash-2.0" in provider.MODEL_CAPABILITIES["gemini-2.0-flash"].aliases
@@ -34,6 +36,8 @@ class TestSupportedModelsAliases:
         assert provider._resolve_model_name("flash") == "gemini-3.8-flash"
         assert provider._resolve_model_name("flash2.5") == "gemini-2.5-flash"
         assert provider._resolve_model_name("pro") == "gemini-3.1-pro-preview"
+        assert provider._resolve_model_name("neon") == "gemini-4-neon"
+        assert provider._resolve_model_name("carbon") == "gemini-4-carbon"
         assert provider._resolve_model_name("argon") == "gemini-4-argon"
         assert provider._resolve_model_name("gemini-4") == "gemini-4-argon"
         assert provider._resolve_model_name("flash-2.0") == "gemini-2.0-flash"

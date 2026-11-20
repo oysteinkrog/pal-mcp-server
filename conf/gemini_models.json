@@ -26,6 +26,50 @@
   },
   "models": [
     {
+      "model_name": "gemini-4-neon",
+      "friendly_name": "Gemini 4 Neon",
+      "aliases": [
+        "neon",
+        "gemini-neon"
+      ],
+      "intelligence_score": 21,
+      "description": "Gemini 4 Neon (2026-11-18) with thinking mode (1M context) - fast deep reasoning, code review, bug hunting; multimodal",
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "max_thinking_tokens": 32768,
+      "supports_extended_thinking": true,
+      "supports_system_prompts": true,
+      "supports_streaming": true,
+      "supports_function_calling": true,
+      "supports_json_mode": true,
+      "supports_images": true,
+      "supports_temperature": true,
+      "allow_code_generation": true,
+      "max_image_size_mb": 32.0
+    },
+    {
+      "model_name": "gemini-4-carbon",
+      "friendly_name": "Gemini 4 Carbon",
+      "aliases": [
+        "carbon",
+        "gemini-carbon"
+      ],
+      "intelligence_score": 22,
+      "description": "Gemini 4 Carbon (2026-11-10), top Gemini 4 tier with thinking mode (1M context) - hardest reasoning and contested decisions; multimodal",
+      "context_window": 1048576,
+      "max_output_tokens": 32768,
+      "max_thinking_tokens": 32768,
+      "supports_extended_thinking": true,
+      "supports_system_prompts": true,
+      "supports_streaming": true,
+      "supports_function_calling": true,
+      "supports_json_mode": true,
+      "supports_images": true,
+      "supports_temperature": true,
+      "allow_code_generation": true,
+      "max_image_size_mb": 32.0
+    },
+    {
       "model_name": "gemini-4-argon",
       "friendly_name": "Gemini 4 Argon",
       "aliases": [
