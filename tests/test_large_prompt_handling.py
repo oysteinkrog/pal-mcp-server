@@ -256,7 +256,10 @@ class TestLargePromptHandling:
     async def test_multiple_files_with_prompt_txt(self, temp_prompt_file):
         """Test handling of prompt.txt alongside other files."""
         tool = ChatTool()
-        other_file = "/some/other/file.py"
+        # A real file: chat refuses an attached path that does not exist.
+        other_file = os.path.join(os.path.dirname(temp_prompt_file), "file.py")
+        with open(other_file, "w") as f:
+            f.write("print('other')\n")
 
         with (
             patch("utils.model_context.ModelContext") as mock_model_context_cls,

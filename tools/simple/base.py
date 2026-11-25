@@ -990,6 +990,7 @@ Please provide a thoughtful, comprehensive response:"""
                         f"Received relative path: {file_path}\n"
                         f"Please provide the full absolute path starting with '/' (must be FULL absolute paths to real files / folders - DO NOT SHORTEN)"
                     )
+            return self._check_attached_files(files)
 
         return None
 

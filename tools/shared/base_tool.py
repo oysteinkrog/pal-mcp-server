@@ -691,23 +691,28 @@ class BaseTool(ABC):
                     if path and not os.path.isabs(path):
                         return f"All file paths must be FULL absolute paths. Invalid path: '{path}'"
 
-        # Files to embed must exist and be readable. Without this check a refused or missing
-        # file became a "NO FILES FOUND" note and the model was still called (and paid for).
-        attached = getattr(request, "absolute_file_paths", None) or []
-        for path in attached if isinstance(attached, list) else [attached]:
+        return self._check_attached_files(getattr(request, "absolute_file_paths", None))
+
+    @staticmethod
+    def _check_attached_files(attached) -> Optional[str]:
+        """Files to embed must exist and be readable.
+
+        Without this check a refused or missing file became a "NO FILES FOUND" note
+        and the model was still called (and paid for).
+        """
+        from utils.file_utils import resolve_and_validate_path
+
+        for path in (attached if isinstance(attached, list) else [attached]) if attached else []:
             if not path:
                 continue
             try:
-                from utils.file_utils import resolve_and_validate_path
-
-                resolved = resolve_and_validate_path(path)
+                resolved = resolve_and_validate_path(os.path.expanduser(path))
             except (ValueError, PermissionError) as e:
                 return f"Attached file refused, nothing was sent to the model: {e}"
             if not resolved.exists():
                 return f"Attached file not found, nothing was sent to the model: '{path}'"
-            if resolved.is_file() and not os.access(resolved, os.R_OK):
+            if not os.access(resolved, os.R_OK):
                 return f"Attached file is not readable, nothing was sent to the model: '{path}'"
-
         return None
 
     def _validate_token_limit(self, content: str, content_type: str = "Content") -> None:

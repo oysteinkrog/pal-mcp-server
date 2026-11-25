@@ -70,7 +70,7 @@ def test_missing_attached_file_fails_before_the_model_call(tmp_path):
         working_directory_absolute_path=str(tmp_path),
         model="gemini-4-neon",
     )
-    error = tool.validate_file_paths(req)
+    error = tool._validate_file_paths(req)
     assert error and "not found" in error
 
 
@@ -84,5 +84,5 @@ def test_refused_attached_file_fails_loudly(path, tmp_path):
         working_directory_absolute_path=str(tmp_path),
         model="gemini-4-neon",
     )
-    error = ChatTool().validate_file_paths(req)
+    error = ChatTool()._validate_file_paths(req)
     assert error and "refused" in error
