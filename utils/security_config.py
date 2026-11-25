@@ -20,6 +20,12 @@ DANGEROUS_SYSTEM_PATHS = {
     "C:\\Program Files",
 }
 
+# Subtrees of a dangerous system path that are still allowed. /var/tmp is a scratch
+# area like /tmp (which is not blocked), and agents here keep their work files there.
+ALLOWED_UNDER_SYSTEM_PATHS = {
+    "/var/tmp",
+}
+
 # User home container paths - block ONLY the exact path, not subdirectories
 # Subdirectory access (e.g., /home/user/project) is controlled by is_home_directory_root()
 # This allows users to work in their home subdirectories while blocking overly broad access
@@ -136,7 +142,13 @@ def is_dangerous_path(path: Path) -> bool:
         if resolved.parent == resolved:
             return True
 
-        # Check 2: System paths - block exact match AND all subdirectories
+        # Check 2: System paths - block exact match AND all subdirectories,
+        # except the allowed scratch subtrees (strictly below them, never the folder itself)
+        for allowed in ALLOWED_UNDER_SYSTEM_PATHS:
+            for allowed_path in _dangerous_variants(Path(allowed)):
+                if resolved != allowed_path and resolved.is_relative_to(allowed_path):
+                    return False
+
         for dangerous in DANGEROUS_SYSTEM_PATHS:
             # Skip root "/" - already handled above
             if dangerous == "/":

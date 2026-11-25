@@ -234,8 +234,9 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
                 generation_config.thinking_config = types.ThinkingConfig(thinking_budget=actual_thinking_budget)
 
         # Retry logic with progressive delays
-        max_retries = 4  # Total of 4 attempts
-        retry_delays = [1, 3, 5, 8]  # Progressive delays: 1s, 3s, 5s, 8s
+        max_retries = 5  # Total of 5 attempts
+        # Progressive delays. A Vertex 429 (tokens per minute) needs tens of seconds.
+        retry_delays = [2, 8, 20, 45, 60]
         attempt_counter = {"value": 0}
 
         def _attempt() -> ModelResponse:
@@ -541,15 +542,20 @@ class GeminiModelProvider(RegistryBackedProviderMixin, ModelProvider):
             # For Gemini, check for specific non-retryable error indicators
             # These typically indicate permanent failures or quota/size limits
             non_retryable_indicators = [
-                "quota exceeded",
-                "resource exhausted",
                 "context length",
                 "token limit",
                 "request too large",
                 "invalid request",
+                "per day",
+                "perday",
                 "quota_exceeded",
-                "resource_exhausted",
             ]
+            # A quota that refills within a minute is throttling, not a hard stop.
+            if "quota exceeded" in error_str and not any(
+                s in error_str for s in ("per minute", "per_minute", "perminute", "try again later")
+            ):
+                logger.debug(f"Non-retryable Gemini quota error: {error_str[:200]}...")
+                return False
 
             # Also check if this is a structured error from Gemini SDK
             try:

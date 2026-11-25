@@ -134,7 +134,7 @@ class ModelContext:
             # Larger context models (Gemini): More generous allocation
             content_ratio = 0.8  # 80% for content
             response_ratio = 0.2  # 20% for response
-            file_ratio = 0.4  # 40% of content for files
+            file_ratio = 0.85  # 85% of content for files: one big attached file is the common case
             history_ratio = 0.4  # 40% of content for history
 
         # Calculate allocations

@@ -169,11 +169,13 @@ class TestFileUtils:
 
     def test_read_files_large_file(self, project_path):
         """Test handling of large files"""
-        # Create a file larger than max_size (1MB)
+        # Create a file larger than max_size (1MB here; the default is 16 MB)
+        from utils.file_utils import read_file_content
+
         large_file = project_path / "large.txt"
         large_file.write_text("x" * 2_000_000, encoding="utf-8")  # 2MB
 
-        content = read_files([str(large_file)])
+        content, _ = read_file_content(str(large_file), max_size=1_000_000)
 
         assert "--- FILE TOO LARGE:" in content
         assert "2,000,000 bytes" in content

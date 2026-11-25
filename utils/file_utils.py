@@ -419,7 +419,7 @@ def expand_paths(paths: list[str], extensions: Optional[set[str]] = None) -> lis
 
 
 def read_file_content(
-    file_path: str, max_size: int = 1_000_000, *, include_line_numbers: Optional[bool] = None
+    file_path: str, max_size: int = 16_000_000, *, include_line_numbers: Optional[bool] = None
 ) -> tuple[str, int]:
     """
     Read a single file and format it for inclusion in AI prompts.
@@ -841,7 +841,7 @@ def check_total_file_size(files: list[str], model_name: str) -> Optional[dict]:
     # Dynamic threshold based on model capacity
     context_window = token_allocation.total_tokens
     if context_window >= 1_000_000:  # Gemini-class models
-        threshold_percent = 0.8  # Can be more generous
+        threshold_percent = 0.95  # The file budget is already a share of the context
     elif context_window >= 500_000:  # Mid-range models
         threshold_percent = 0.7  # Moderate
     else:  # OpenAI-class models (200K)
