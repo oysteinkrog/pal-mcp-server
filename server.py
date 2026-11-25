@@ -1531,6 +1531,9 @@ async def _run_sse(host: str, port: int, init_options):
     # an unreachable server while a stale process holds the port.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        # Same option uvicorn sets: a TIME-WAIT socket from the last run must not
+        # count as "in use", or every restart waits a minute. A live listener still fails.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
     except OSError as exc:
         logger.error(f"Port {port} on {host} is already in use: {exc}")
